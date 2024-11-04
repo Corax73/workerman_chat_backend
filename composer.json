@@ -1,0 +1,16 @@
+{
+    "authors": [
+        {
+            "name": "Corax73",
+            "email": "ramaz999@inbox.ru"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Wrap\\": "src/"
+        }
+    },
+    "require": {
+        "workerman/workerman": "^4.1"
+    }
+}
