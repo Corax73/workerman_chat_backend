@@ -10,6 +10,7 @@ use Workerman\Connection\TcpConnection;
 class WorkermanWrap extends Worker
 {
     protected string $joinedMsg = "User %s joined";
+
     public function __construct(private readonly int $countConnections, private readonly int $messageDisplayTime, private array $rooms, string $socketName)
     {
         parent::__construct($socketName);
@@ -18,6 +19,9 @@ class WorkermanWrap extends Worker
         $this->onConnect = $this->getOnConnectCallback();
     }
 
+    /**
+     * Returns the message processing function.
+     */
     protected function getOnMessageCallback(): callable
     {
         return  function (TcpConnection $connection, string $data) {
@@ -33,6 +37,9 @@ class WorkermanWrap extends Worker
         };
     }
 
+    /**
+     * Returns the connection processing function.
+     */
     protected function getOnConnectCallback(): callable
     {
         return function (TcpConnection $connection) {
@@ -41,11 +48,18 @@ class WorkermanWrap extends Worker
         };
     }
 
+    /**
+     * Returns json by the given key and value, or an empty string.
+     */
     protected function createResponse(string|int $key, mixed $val): string
     {
-        return json_encode([$key => $val], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $key ? json_encode([$key => $val], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : '';
     }
 
+    /**
+     * Based on the sent sender identifier and message body, returns an array containing also the sending time key (Unix) `sender_time` or
+     * an empty array.
+     */
     protected function createMessageArray(string|int $senderId, string|int $msg): array
     {
         $resp = [];
@@ -55,6 +69,9 @@ class WorkermanWrap extends Worker
         return $resp;
     }
 
+    /**
+     * Returns an array from its own rooms property by `history` key, filtering by its own `messageDisplayTime` property (given from minutes to seconds).
+     */
     protected function filterHistoryByTimestamp(string|int $roomCode): array
     {
         return isset($this->rooms[$roomCode]['history']) && $this->rooms[$roomCode]['history'] ?
@@ -64,6 +81,9 @@ class WorkermanWrap extends Worker
             [];
     }
 
+    /**
+     * Sends a message using the transmitted room ID and sender ID, also adds this message to the history.
+     */
     protected function sendToRoom(string|int $roomCode, string|int $msg, string|int $senderId): void
     {
         if (!empty($roomCode) && !empty($msg) && isset($this->rooms[$roomCode]) && $this->rooms[$roomCode] && $senderId) {
@@ -80,6 +100,9 @@ class WorkermanWrap extends Worker
         }
     }
 
+    /**
+     * Adds a connection ID to the room, sends a message about it.
+     */
     protected function addToRoom(string|int $roomCode, int $connectionId): void
     {
         if (!isset($this->rooms[$roomCode])) {
@@ -95,13 +118,13 @@ class WorkermanWrap extends Worker
         if (isset($this->rooms[$roomCode]['history']) && $this->rooms[$roomCode]['history']) {
             $history = $this->filterHistoryByTimestamp($roomCode);
             if ($history) {
-                $this->connections[$connectionId]->send($this->createResponse($roomCode, /*$this->rooms[$roomCode]['history']*/ $history));
+                $this->connections[$connectionId]->send($this->createResponse($roomCode, $history));
             }
         }
-        foreach ($this->rooms[$roomCode]['connection_ids'] as $id) {
-            $joinedMsg = sprintf($this->joinedMsg, $connectionId);
-            $msgArr = $this->createMessageArray('system', $joinedMsg);
-            if ($msgArr) {
+        $joinedMsg = sprintf($this->joinedMsg, $connectionId);
+        $msgArr = $this->createMessageArray('system', $joinedMsg);
+        if ($msgArr) {
+            foreach ($this->rooms[$roomCode]['connection_ids'] as $id) {
                 $this->rooms[$roomCode]['history'][] = $msgArr;
                 if (isset($this->connections[$id]) && $this->connections[$id]) {
                     $this->connections[$id]->send($this->createResponse($roomCode, $msgArr));
@@ -110,6 +133,9 @@ class WorkermanWrap extends Worker
         }
     }
 
+    /**
+     * Returns json with a list of rooms under the key `rooms_list`.
+     */
     protected function getRoomsList(): string
     {
         return $this->createResponse('rooms_list', array_keys($this->rooms));

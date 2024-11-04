@@ -4,5 +4,10 @@ use Wrap\WorkermanWrap;
 
 require './vendor/autoload.php';
 
-$worker = new WorkermanWrap(1, 5, [], 'websocket://0.0.0.0:2346');
+$countConnections = 1;
+$messageDisplayTime = 5;
+$rooms = [];
+$socketName = 'websocket://0.0.0.0:2346';
+
+$worker = new WorkermanWrap($countConnections, $messageDisplayTime, $rooms, $socketName);
 $worker->start();
