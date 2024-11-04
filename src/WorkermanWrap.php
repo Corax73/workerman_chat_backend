@@ -9,9 +9,10 @@ use Workerman\Connection\TcpConnection;
 
 class WorkermanWrap extends Worker
 {
-    public function __construct(private readonly int $countConnections, private array $rooms, string $socket_name)
+    protected string $joinedMsg = "User %s joined";
+    public function __construct(private readonly int $countConnections, private array $rooms, string $socketName)
     {
-        parent::__construct($socket_name);
+        parent::__construct($socketName);
         $this->count = $this->countConnections;
         $this->onMessage = $this->getOnMessageCallback();
         $this->onConnect = $this->getOnConnectCallback();
@@ -20,36 +21,13 @@ class WorkermanWrap extends Worker
     protected function getOnMessageCallback(): callable
     {
         return  function (TcpConnection $connection, string $data) {
-
             if (!empty($data) && $arData = json_decode($data, true)) {
-                if (
-                    isset($arData['room_id']) &&
-                    $arData['room_id'] &&
-                    isset($arData['msg']) &&
-                    !isset($arData['go_to_room'])
-                ) {
+                if (isset($arData['room_id']) && $arData['room_id'] && isset($arData['msg']) && !isset($arData['go_to_room'])) {
                     $this->sendToRoom($arData['room_id'], $arData['msg']);
                 } elseif (isset($arData['go_to_room']) && $arData['go_to_room']) {
-                    if (!isset($this->rooms[$arData['go_to_room']])) {
-                        $this->rooms[$arData['go_to_room']] = [];
-                        $this->rooms[$arData['go_to_room']]['connection_ids'] = [];
-                    }
-                    array_push($this->rooms[$arData['go_to_room']]['connection_ids'], $connection->id);
-                    if (!property_exists($connection, 'rooms')) {
-                        $connection->rooms = [];
-                    }
-                    $connection->rooms[] = $arData['go_to_room'];
-                    $connection->send('your room is № ' . $arData['go_to_room']);
-                    if (isset($this->rooms[$arData['go_to_room']]['history']) && $this->rooms[$arData['go_to_room']]['history']) {
-                        $connection->send(implode("\n", $this->rooms[$arData['go_to_room']]['history']));
-                    }
-                    foreach ($this->rooms[$arData['go_to_room']]['connection_ids'] as $id) {
-                        $joinedMsg = "User $connection->id joined \n";
-                        $this->rooms[$arData['go_to_room']]['history'][] = $joinedMsg;
-                        if (isset($this->connections[$id]) && $this->connections[$id]) {
-                            $this->connections[$id]->send($joinedMsg);
-                        }
-                    }
+                    $this->addToRoom($arData['go_to_room'], $connection->id);
+                } elseif (!isset($arData['room_id']) && !isset($arData['go_to_room']) && isset($arData['go_rooms_list'])) {
+                    $connection->send($this->getRoomsList());
                 }
             }
         };
@@ -59,26 +37,55 @@ class WorkermanWrap extends Worker
     {
         return function (TcpConnection $connection) {
             $this->connections[$connection->id] = $connection;
-            $connection->send('Room list: ' . implode(',', array_keys($this->rooms)));
+            $connection->send($this->getRoomsList());
         };
+    }
+
+    protected function createResponse(string|int $key, mixed $val): string
+    {
+        return json_encode([$key => $val], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     protected function sendToRoom(string|int $roomCode, string|int $msg): void
     {
-        if (
-            !empty($roomCode) &&
-            !empty($msg) &&
-            isset($this->rooms[$roomCode]) &&
-            $this->rooms[$roomCode]
-        ) {
+        if (!empty($roomCode) && !empty($msg) && isset($this->rooms[$roomCode]) && $this->rooms[$roomCode]) {
             foreach ($this->rooms[$roomCode]['connection_ids'] as $id) {
-                $this->connections[$id]->send($msg);
+                $this->connections[$id]->send($this->createResponse($roomCode, $msg));
             }
             if (!isset($this->rooms[$roomCode]['history'])) {
                 $this->rooms[$roomCode]['history'] = [];
             }
             $this->rooms[$roomCode]['history'][] = $msg;
         }
+    }
+
+    protected function addToRoom(string|int $roomCode, int $connectionId): void
+    {
+        if (!isset($this->rooms[$roomCode])) {
+            $this->rooms[$roomCode] = [];
+            $this->rooms[$roomCode]['connection_ids'] = [];
+        }
+        array_push($this->rooms[$roomCode]['connection_ids'], $connectionId);
+        if (!property_exists($this->connections[$connectionId], 'rooms')) {
+            $this->connections[$connectionId]->rooms = [];
+        }
+        $this->connections[$connectionId]->rooms[] = $roomCode;
+        $this->connections[$connectionId]->send('your room is № ' . $roomCode);
+        if (isset($this->rooms[$roomCode]['history']) && $this->rooms[$roomCode]['history']) {
+            $this->connections[$connectionId]->send($this->createResponse($roomCode, $this->rooms[$roomCode]['history']));
+        }
+        foreach ($this->rooms[$roomCode]['connection_ids'] as $id) {
+            $joinedMsg = sprintf($this->joinedMsg, $connectionId);
+            $this->rooms[$roomCode]['history'][] = $joinedMsg;
+            if (isset($this->connections[$id]) && $this->connections[$id]) {
+                $this->connections[$id]->send($this->createResponse($roomCode, $joinedMsg));
+            }
+        }
+    }
+
+    protected function getRoomsList(): string
+    {
+        return $this->createResponse('rooms_list', array_keys($this->rooms));
     }
 
     public function start()
