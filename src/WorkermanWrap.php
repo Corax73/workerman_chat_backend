@@ -30,7 +30,7 @@ class WorkermanWrap extends Worker
                     $this->sendToRoom($arData['room_id'], $arData['msg'], $connection->id);
                 } elseif (isset($arData['go_to_room']) && $arData['go_to_room']) {
                     $this->addToRoom($arData['go_to_room'], $connection->id);
-                } elseif (!isset($arData['room_id']) && !isset($arData['go_to_room']) && isset($arData['go_rooms_list'])) {
+                } elseif (!isset($arData['room_id']) && !isset($arData['go_to_room']) && isset($arData['get_rooms_list'])) {
                     $connection->send($this->getRoomsList());
                 }
             }
